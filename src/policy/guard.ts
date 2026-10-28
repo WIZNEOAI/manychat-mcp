@@ -30,7 +30,6 @@ export interface InteractionEvidence {
 export interface MessageIntent {
   message_tag?: string;
   promotional?: boolean;
-  human_agent?: boolean;
 }
 export interface Verdict {
   allowed: boolean;
@@ -43,6 +42,7 @@ export function evaluatePolicy(
   evidence: InteractionEvidence,
   intent: MessageIntent,
   now = Date.now(),
+  settings: { allowHumanAgent?: boolean } = {},
 ): Verdict {
   const result = (
     allowed: boolean,
@@ -114,7 +114,7 @@ export function evaluatePolicy(
     return result(true, "ALLOWED", "Inside the WhatsApp 24-hour window.");
   }
   if (tag === "HUMAN_AGENT") {
-    if (!intent.human_agent || age >= 168 * 3600000)
+    if (!settings.allowHumanAgent || age >= 168 * 3600000)
       return result(
         false,
         "HUMAN_AGENT_REQUIRED",

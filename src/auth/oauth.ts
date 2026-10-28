@@ -49,6 +49,9 @@ export async function resolveApiKeyFromToken(
 ): Promise<string | null> {
   return (await store().getAccessToken(bearerToken))?.apiKey ?? null;
 }
+export async function takeRegistrationQuota(ip: string): Promise<boolean> {
+  return store().takeRegistrationQuota(ip);
+}
 export async function registerClient(
   clientName: string,
   redirectUris: string[],
@@ -72,6 +75,8 @@ export async function createAuthorizationCode(
   redirectUri: string,
   apiKey: string,
 ): Promise<string> {
+  if (!(await store().markClientUsed(clientId)))
+    throw new Error("OAuth client registration expired.");
   const code = randomBytes(32).toString("hex");
   const payload: AuthorizationCode = {
     code,

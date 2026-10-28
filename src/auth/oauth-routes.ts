@@ -6,7 +6,9 @@ import {
   exchangeCodeForToken,
   refreshAccessToken,
   revokeToken,
+  takeRegistrationQuota,
 } from "./oauth.js";
+import { ClientRegistrationLimitError } from "./client-registry.js";
 import { log } from "../lib/logger.js";
 const fail = (res: Response, status: number, error: string): void => {
   res.status(status).json({ error });
@@ -30,6 +32,15 @@ const query = (value: unknown): string | null =>
   isString(value) ? value : null;
 export function createOAuthRouter(serverBaseUrl: string): Router {
   const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy",
+      "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'",
+    );
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Strict-Transport-Security", "max-age=31536000");
+    next();
+  });
   let issuer: URL;
   try {
     issuer = new URL(serverBaseUrl);
@@ -67,6 +78,14 @@ export function createOAuthRouter(serverBaseUrl: string): Router {
   );
   router.post("/register", async (req: Request, res: Response) => {
     try {
+      if (
+        !(await takeRegistrationQuota(
+          req.ip ?? req.socket.remoteAddress ?? "unknown",
+        ))
+      ) {
+        res.setHeader("Retry-After", "3600");
+        return fail(res, 429, "rate_limited");
+      }
       const name = req.body?.client_name;
       const uris = req.body?.redirect_uris;
       if (
@@ -85,9 +104,13 @@ export function createOAuthRouter(serverBaseUrl: string): Router {
         client_name: client.clientName,
         redirect_uris: client.redirectUris,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof ClientRegistrationLimitError) {
+        res.setHeader("Retry-After", "3600");
+        return fail(res, 429, "rate_limited");
+      }
       log.error("oauth registration failed");
-      return fail(res, 500, "server_error");
+      return fail(res, 503, "server_error");
     }
   });
   router.get("/authorize", async (req: Request, res: Response) => {
@@ -117,7 +140,15 @@ export function createOAuthRouter(serverBaseUrl: string): Router {
       res.setHeader("X-Content-Type-Options", "nosniff");
       return res
         .type("html")
-        .send(renderAuthPage(clientId, redirectUri, challenge, state));
+        .send(
+          renderAuthPage(
+            clientId,
+            client.clientName,
+            redirectUri,
+            challenge,
+            state,
+          ),
+        );
     } catch {
       log.error("oauth authorization page failed");
       return fail(res, 500, "server_error");
@@ -226,6 +257,7 @@ export function createOAuthRouter(serverBaseUrl: string): Router {
 }
 function renderAuthPage(
   clientId: string,
+  clientName: string,
   redirectUri: string,
   challenge: string,
   state: string,
@@ -242,5 +274,5 @@ function renderAuthPage(
           "'": "&#39;",
         })[char]!,
     );
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect ManyChat</title></head><body><main><h1>Connect ManyChat</h1><form method="post" action="/authorize"><input type="hidden" name="client_id" value="${esc(clientId)}"><input type="hidden" name="redirect_uri" value="${esc(redirectUri)}"><input type="hidden" name="code_challenge" value="${esc(challenge)}"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="state" value="${esc(state)}"><label for="api_key">ManyChat API key</label><input id="api_key" type="password" name="api_key" autocomplete="off" required><button type="submit">Connect</button></form></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect ManyChat</title></head><body><main><h1>Connect ManyChat</h1><p>Continue with <strong>${esc(clientName)}</strong> (unverified) at <strong>${esc(new URL(redirectUri).host)}</strong>.</p><form method="post" action="/authorize"><input type="hidden" name="client_id" value="${esc(clientId)}"><input type="hidden" name="redirect_uri" value="${esc(redirectUri)}"><input type="hidden" name="code_challenge" value="${esc(challenge)}"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="state" value="${esc(state)}"><label for="api_key">ManyChat API key</label><input id="api_key" type="password" name="api_key" autocomplete="off" required><button type="submit">Connect</button></form></main></body></html>`;
 }

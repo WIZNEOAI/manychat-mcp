@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   exchangeCodeForToken,
@@ -97,7 +97,16 @@ describe("OAuth redemption is single-use under concurrency", () => {
       "redis://offline.invalid",
       "test",
       redis as never,
+      "12".repeat(32),
     );
+    // This test owns atomic credential redemption, not the independent registration Lua scripts.
+    vi.spyOn(store, "registerClient").mockResolvedValue({
+      clientId: "offline-client",
+      clientName: "offline test",
+      redirectUris: [redirect],
+      createdAt: Date.now(),
+    });
+    vi.spyOn(store, "markClientUsed").mockResolvedValue(true);
     const { clientId, code } = await prepare(store);
     const codes = await hundred(() =>
       exchangeCodeForToken(code, clientId, verifier, redirect),

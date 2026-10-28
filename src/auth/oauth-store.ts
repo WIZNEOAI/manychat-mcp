@@ -1,5 +1,16 @@
-import { randomUUID } from "node:crypto";
 import { Redis } from "ioredis";
+import {
+  MemoryClientRegistry,
+  RedisClientRegistry,
+  type ClientRegistry,
+  type ClientRegistryConfig,
+} from "./client-registry.js";
+import {
+  decryptOAuthRecord,
+  encryptOAuthRecord,
+  oauthKeyId,
+  parseOAuthEncryptionKey,
+} from "./oauth-crypto.js";
 import { log } from "../lib/logger.js";
 
 export interface RegisteredClient {
@@ -47,6 +58,8 @@ export interface OAuthStore {
     redirectUris: string[],
   ): Promise<RegisteredClient>;
   getClient(clientId: string): Promise<RegisteredClient | null>;
+  takeRegistrationQuota(ip: string): Promise<boolean>;
+  markClientUsed(clientId: string): Promise<boolean>;
   saveAuthorizationCode(code: AuthorizationCode): Promise<void>;
   takeAuthorizationCode(code: string): Promise<AuthorizationCode | null>;
   saveAccessToken(token: AccessToken): Promise<void>;
@@ -74,15 +87,17 @@ export function assertDurableOAuthStoreConfig(
     throw new Error(
       "Production OAuth over HTTP requires OAUTH_STORE=redis and REDIS_URL.",
     );
+  parseOAuthEncryptionKey(env.OAUTH_ENC_KEY);
 }
 export class MemoryOAuthStore implements OAuthStore {
-  private readonly clients = new Map<string, RegisteredClient>();
+  private readonly clients: ClientRegistry;
   private readonly authCodes = new Map<string, AuthorizationCode>();
   private readonly accessTokens = new Map<string, AccessToken>();
   private readonly refreshTokens = new Map<string, RefreshToken>();
   private readonly auditEvents: OAuthAuditEvent[] = [];
   private readonly cleanupTimer: NodeJS.Timeout;
-  constructor() {
+  constructor(registryConfig: ClientRegistryConfig = {}) {
+    this.clients = new MemoryClientRegistry(registryConfig);
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000);
     this.cleanupTimer.unref();
   }
@@ -93,17 +108,16 @@ export class MemoryOAuthStore implements OAuthStore {
     clientName: string,
     redirectUris: string[],
   ): Promise<RegisteredClient> {
-    const client = {
-      clientId: randomUUID(),
-      clientName,
-      redirectUris: [...redirectUris],
-      createdAt: Date.now(),
-    };
-    this.clients.set(client.clientId, client);
-    return client;
+    return this.clients.register(clientName, redirectUris);
   }
   async getClient(id: string): Promise<RegisteredClient | null> {
-    return this.clients.get(id) ?? null;
+    return this.clients.get(id);
+  }
+  async takeRegistrationQuota(ip: string): Promise<boolean> {
+    return this.clients.takeQuota(ip);
+  }
+  async markClientUsed(id: string): Promise<boolean> {
+    return this.clients.markUsed(id);
   }
   async saveAuthorizationCode(code: AuthorizationCode): Promise<void> {
     this.authCodes.set(code.code, { ...code });
@@ -160,35 +174,43 @@ export class MemoryOAuthStore implements OAuthStore {
 type RedisClient = Pick<Redis, "set" | "get" | "del" | "call" | "multi">;
 export class RedisOAuthStore implements OAuthStore {
   private readonly redis: RedisClient;
+  private readonly encryptionKey: Buffer;
+  private readonly clients: ClientRegistry;
   constructor(
     redisUrl: string,
     private readonly prefix = "manychat-mcp:oauth",
     client?: RedisClient,
+    encryptionKey = process.env.OAUTH_ENC_KEY,
   ) {
+    this.encryptionKey = parseOAuthEncryptionKey(encryptionKey);
     this.redis = client ?? new Redis(redisUrl, { lazyConnect: false });
+    this.clients = new RedisClientRegistry(this.redis, this.prefix);
   }
   private key(kind: string, id?: string): string {
-    return id ? `${this.prefix}:${kind}:${id}` : `${this.prefix}:${kind}`;
+    return id
+      ? `${this.prefix}:${kind}:${oauthKeyId(id)}`
+      : `${this.prefix}:${kind}`;
+  }
+  private encode(kind: string, id: string, value: unknown): string {
+    return encryptOAuthRecord(value, this.encryptionKey, kind, oauthKeyId(id));
+  }
+  private decode<T>(kind: string, id: string, raw: string): T {
+    return decryptOAuthRecord<T>(raw, this.encryptionKey, kind, oauthKeyId(id));
   }
   async registerClient(
     clientName: string,
     redirectUris: string[],
   ): Promise<RegisteredClient> {
-    const client = {
-      clientId: randomUUID(),
-      clientName,
-      redirectUris: [...redirectUris],
-      createdAt: Date.now(),
-    };
-    await this.redis.set(
-      this.key("client", client.clientId),
-      JSON.stringify(client),
-    );
-    return client;
+    return this.clients.register(clientName, redirectUris);
   }
   async getClient(id: string): Promise<RegisteredClient | null> {
-    const raw = await this.redis.get(this.key("client", id));
-    return raw ? (JSON.parse(raw) as RegisteredClient) : null;
+    return this.clients.get(id);
+  }
+  async takeRegistrationQuota(ip: string): Promise<boolean> {
+    return this.clients.takeQuota(ip);
+  }
+  async markClientUsed(id: string): Promise<boolean> {
+    return this.clients.markUsed(id);
   }
   async saveAuthorizationCode(code: AuthorizationCode): Promise<void> {
     await this.setExpiring("auth_code", code.code, code, code.expiresAt);
@@ -203,16 +225,16 @@ export class RedisOAuthStore implements OAuthStore {
   async getAccessToken(token: string): Promise<AccessToken | null> {
     const raw = await this.redis.get(this.key("access_token", token));
     if (!raw) return null;
-    const entry = JSON.parse(raw) as AccessToken;
+    const entry = this.decode<AccessToken>("access_token", token, raw);
     return entry.revokedAt === null && validExpiry(entry.expiresAt)
       ? entry
       : null;
   }
   async revokeAccessToken(token: string): Promise<boolean> {
-    const key = this.key("access_token", token);
-    const raw = await this.redis.get(key);
+    const key = this.key("access_token", token),
+      raw = await this.redis.get(key);
     if (!raw) return false;
-    const entry = JSON.parse(raw) as AccessToken;
+    const entry = this.decode<AccessToken>("access_token", token, raw);
     if (entry.revokedAt !== null) return false;
     entry.revokedAt = Date.now();
     await this.setExpiring("access_token", token, entry, entry.expiresAt);
@@ -248,7 +270,7 @@ export class RedisOAuthStore implements OAuthStore {
     if (raw === null || raw === undefined) return null;
     if (typeof raw !== "string")
       throw new Error("OAuth store returned invalid data.");
-    return JSON.parse(raw) as T;
+    return this.decode<T>(kind, id, raw);
   }
   private async setExpiring(
     kind: string,
@@ -258,7 +280,12 @@ export class RedisOAuthStore implements OAuthStore {
   ): Promise<void> {
     const ttl = Math.floor((expiresAt - Date.now()) / 1000);
     if (ttl < 1) throw new Error("OAuth credential expired before storage.");
-    await this.redis.set(this.key(kind, id), JSON.stringify(value), "EX", ttl);
+    await this.redis.set(
+      this.key(kind, id),
+      this.encode(kind, id, value),
+      "EX",
+      ttl,
+    );
   }
 }
 export function createOAuthStoreFromEnv(
@@ -268,7 +295,14 @@ export function createOAuthStoreFromEnv(
   if (mode === "redis") {
     if (!env.REDIS_URL)
       throw new Error("REDIS_URL is required when OAUTH_STORE=redis.");
-    return new RedisOAuthStore(env.REDIS_URL);
+    if (env.NODE_ENV === "production")
+      parseOAuthEncryptionKey(env.OAUTH_ENC_KEY);
+    return new RedisOAuthStore(
+      env.REDIS_URL,
+      "manychat-mcp:oauth",
+      undefined,
+      env.OAUTH_ENC_KEY,
+    );
   }
   if (env.NODE_ENV === "production")
     throw new Error(

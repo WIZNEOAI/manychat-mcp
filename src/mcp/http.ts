@@ -30,22 +30,50 @@ export function createHttpApp(options: HttpOptions = {}): {
     throw new Error(
       "Production HTTP requires REDIS_URL for shared rate limits.",
     );
-  const rate =
-    options.rateStore ??
-    (env.REDIS_URL ? new RedisRateStore(env.REDIS_URL) : new MemoryRateStore());
+  const proxyCidrs = (env.TRUST_PROXY_CIDRS ?? "")
+    .split(",")
+    .map((cidr) => cidr.trim())
+    .filter(Boolean);
+  const proxyHops = (env.TRUST_PROXY_HOPS ?? "").trim();
+  if (proxyCidrs.length && proxyHops)
+    throw new Error(
+      "Configure only one of TRUST_PROXY_CIDRS or TRUST_PROXY_HOPS.",
+    );
+  if (proxyHops && (!/^[1-9]\d*$/.test(proxyHops) || Number(proxyHops) > 16))
+    throw new Error("TRUST_PROXY_HOPS must be an integer from 1 to 16.");
+  if (env.NODE_ENV === "production" && !proxyCidrs.length && !proxyHops)
+    throw new Error(
+      "Production HTTP requires TRUST_PROXY_CIDRS or TRUST_PROXY_HOPS.",
+    );
   const app = express();
   app.disable("x-powered-by");
   app.set(
     "trust proxy",
-    env.TRUST_PROXY_CIDRS
-      ? env.TRUST_PROXY_CIDRS.split(",").map((s) => s.trim())
-      : false,
+    proxyCidrs.length ? proxyCidrs : proxyHops ? Number(proxyHops) : false,
   );
+  if (auth === "oauth" && env.NODE_ENV === "production")
+    assertDurableOAuthStoreConfig(env);
+  const rate =
+    options.rateStore ??
+    (env.REDIS_URL ? new RedisRateStore(env.REDIS_URL) : new MemoryRateStore());
   const origins = (env.MCP_ALLOWED_ORIGINS ?? "").split(",").filter(Boolean);
   if (auth === "oauth")
     origins.push(new URL(env.MCP_BASE_URL ?? "http://localhost:3000").origin);
-  app.use(async (req, res, next) => {
+  app.use((_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader(
+      "Content-Security-Policy",
+      "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'",
+    );
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Strict-Transport-Security", "max-age=31536000");
+    next();
+  });
+  // Liveness stays available even when the application budget is exhausted.
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok" });
+  });
+  app.use(async (req, res, next) => {
     if (req.headers.origin && !origins.includes(req.headers.origin)) {
       res.status(403).json({ error: "Origin not allowed" });
       return;
@@ -66,12 +94,8 @@ export function createHttpApp(options: HttpOptions = {}): {
       res.status(503).json({ error: "Rate limiter unavailable" });
     }
   });
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok" });
-  });
   app.use(express.json({ limit: 32768, inflate: false }));
   if (auth === "oauth") {
-    if (env.NODE_ENV === "production") assertDurableOAuthStoreConfig(env);
     const baseUrl = env.MCP_BASE_URL ?? "http://localhost:3000";
     const parsed = new URL(baseUrl);
     if (
@@ -91,7 +115,7 @@ export function createHttpApp(options: HttpOptions = {}): {
     const key = ctx.authInfo?.extra?.manychatApiKey;
     if (typeof key !== "string")
       throw new Error("Missing execution credential.");
-    return createServer(key);
+    return createServer(key, env.MANYCHAT_ALLOW_HUMAN_AGENT === "1");
   });
   const nodeHandler = toNodeHandler(handler, { onerror: () => {} });
   app.all("/mcp", async (req, res) => {

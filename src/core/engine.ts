@@ -19,7 +19,6 @@ const intent = {
   subscriber_id: id,
   message_tag: z.string().max(64).optional(),
   promotional: z.boolean().optional(),
-  human_agent: z.boolean().optional(),
 };
 const content = z
   .object({
@@ -244,17 +243,33 @@ const evidenceSchema = z
       .optional(),
   })
   .strict();
+const subscriberAutomationWrites: ReadonlySet<string> = new Set([
+  "add_tag_to_subscriber",
+  "add_tag_to_subscriber_by_name",
+  "set_custom_field",
+  "set_custom_field_by_name",
+  "set_custom_fields_bulk",
+  "update_subscriber",
+  "remove_tag_from_subscriber",
+  "remove_tag_from_subscriber_by_name",
+]);
+const unscopedAutomationWrites: ReadonlySet<string> = new Set([
+  "create_subscriber",
+  "set_bot_field",
+]);
 export class ExecutionEngine {
   constructor(
     private readonly client: ManyChatApi,
     private readonly evidence?: EvidenceProvider,
+    private readonly settings = {
+      allowHumanAgent: process.env.MANYCHAT_ALLOW_HUMAN_AGENT === "1",
+    },
   ) {}
   async validate(
     subscriberId: number,
     args: {
       message_tag?: string;
       promotional?: boolean;
-      human_agent?: boolean;
     },
   ): Promise<Verdict> {
     const deny = (code: string, message: string): Verdict => ({
@@ -300,13 +315,25 @@ export class ExecutionEngine {
         "CHANNEL_UNKNOWN",
         "ManyChat getInfo does not identify the channel of its last interaction. Connected phone/Instagram identifiers do not prove it. Supply a trusted server-side evidence adapter; caller declarations cannot unlock sending.",
       );
-    return evaluatePolicy(parsed.data, args);
+    return evaluatePolicy(parsed.data, args, Date.now(), this.settings);
   }
   async execute(name: string, input: unknown): Promise<unknown> {
     const op = operations[name];
     if (!op) throw new Error("Unknown operation.");
     const args = op.schema.parse(input) as Record<string, unknown>;
-    if (name === "validate_message" || name.startsWith("send_")) {
+    if (unscopedAutomationWrites.has(name))
+      throw new PolicyError({
+        allowed: false,
+        code: "AUTOMATION_SCOPE_UNKNOWN",
+        message:
+          "This automation-triggering write has no existing subscriber scope to validate. No write was attempted.",
+        warnings: [],
+      });
+    if (
+      name === "validate_message" ||
+      name.startsWith("send_") ||
+      subscriberAutomationWrites.has(name)
+    ) {
       const verdict = await this.validate(args.subscriber_id as number, args);
       if (name === "validate_message") return verdict;
       if (!verdict.allowed) throw new PolicyError(verdict);
@@ -318,6 +345,8 @@ export class ExecutionEngine {
         throw new Error(
           "Sending on this channel is not supported by this execution adapter.",
         );
+      if (subscriberAutomationWrites.has(name))
+        return this.client.post(op.path!, args);
       if (name === "send_flow")
         return this.client.post("/sending/sendFlow", {
           subscriber_id: args.subscriber_id,

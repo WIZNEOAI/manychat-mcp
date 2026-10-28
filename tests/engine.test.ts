@@ -46,8 +46,24 @@ const sends = [
   ],
   ["send_flow", { subscriber_id: 7, flow_ns: "flow:test" }],
 ] as const;
+const automationWrites = [
+  ["add_tag_to_subscriber", { subscriber_id: 7, tag_id: 2 }],
+  ["add_tag_to_subscriber_by_name", { subscriber_id: 7, tag_name: "x" }],
+  ["set_custom_field", { subscriber_id: 7, field_id: 2, field_value: "x" }],
+  [
+    "set_custom_field_by_name",
+    { subscriber_id: 7, field_name: "x", field_value: "x" },
+  ],
+  [
+    "set_custom_fields_bulk",
+    { subscriber_id: 7, fields: [{ field_id: 2, field_value: "x" }] },
+  ],
+  ["update_subscriber", { subscriber_id: 7, first_name: "test" }],
+  ["remove_tag_from_subscriber", { subscriber_id: 7, tag_id: 2 }],
+  ["remove_tag_from_subscriber_by_name", { subscriber_id: 7, tag_name: "x" }],
+] as const;
 describe("shared execution boundary", () => {
-  it.each(sends)(
+  it.each([...sends, ...automationWrites])(
     "%s fails closed with the actual ambiguous ManyChat schema and never POSTs",
     async (name, args) => {
       const f = fixture();
@@ -59,7 +75,7 @@ describe("shared execution boundary", () => {
       expect(f.post).not.toHaveBeenCalled();
     },
   );
-  it.each(sends)(
+  it.each([...sends, ...automationWrites])(
     "%s blocks an expired WhatsApp window even with an installed trusted provider",
     async (name, args) => {
       const f = fixture("whatsapp", 25);
@@ -68,7 +84,7 @@ describe("shared execution boundary", () => {
       expect(f.post).not.toHaveBeenCalled();
     },
   );
-  it.each(sends)(
+  it.each([...sends, ...automationWrites])(
     "%s permits a verified recent interaction and posts only after lookup",
     async (name, args) => {
       const f = fixture();
@@ -82,6 +98,76 @@ describe("shared execution boundary", () => {
       );
     },
   );
+  it.each([
+    ["create_subscriber", { email: "x@example.com" }],
+    ["set_bot_field", { field_id: 2, field_value: "x" }],
+  ] as const)(
+    "blocks %s because its automation scope cannot be validated for an existing subscriber",
+    async (name, args) => {
+      const f = fixture();
+      await expect(
+        new ExecutionEngine(f.api, { resolve: f.resolve }).execute(name, args),
+      ).rejects.toThrow("AUTOMATION_SCOPE_UNKNOWN");
+      expect(f.post).not.toHaveBeenCalled();
+    },
+  );
+  it("HUMAN_AGENT depends on server configuration, never caller self-declaration", async () => {
+    const f = fixture("instagram", 48);
+    const args = {
+      subscriber_id: 7,
+      text: "Human reply",
+      message_tag: "HUMAN_AGENT",
+      promotional: false,
+    };
+    vi.stubEnv("MANYCHAT_ALLOW_HUMAN_AGENT", "0");
+    try {
+      await expect(
+        new ExecutionEngine(f.api, { resolve: f.resolve }).execute(
+          "send_text_message",
+          args,
+        ),
+      ).rejects.toThrow("HUMAN_AGENT_REQUIRED");
+      for (const name of [
+        "send_text_message",
+        "send_content",
+        "validate_message",
+      ]) {
+        expect(
+          operations[name].schema.safeParse({
+            ...(name === "send_content"
+              ? sends[1][1]
+              : name === "validate_message"
+                ? { subscriber_id: 7 }
+                : args),
+            human_agent: true,
+          }).success,
+        ).toBe(false);
+      }
+      expect(f.post).not.toHaveBeenCalled();
+      vi.stubEnv("MANYCHAT_ALLOW_HUMAN_AGENT", "1");
+      await new ExecutionEngine(f.api, { resolve: f.resolve }).execute(
+        "send_text_message",
+        args,
+      );
+      expect(f.post).toHaveBeenCalledOnce();
+      await expect(
+        new ExecutionEngine(f.api, { resolve: f.resolve }).execute(
+          "send_text_message",
+          { ...args, promotional: true },
+        ),
+      ).rejects.toThrow("PROMOTION_UNDER_TAG");
+      const expired = fixture("instagram", 169);
+      await expect(
+        new ExecutionEngine(expired.api, { resolve: expired.resolve }).execute(
+          "send_text_message",
+          args,
+        ),
+      ).rejects.toThrow("HUMAN_AGENT_REQUIRED");
+      expect(expired.post).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it("refuses caller evidence, override flags and hidden content tags", async () => {
     const f = fixture();
     const e = new ExecutionEngine(f.api);
@@ -176,10 +262,9 @@ describe("shared execution boundary", () => {
     expect(f.get).toHaveBeenLastCalledWith("/subscriber/findBySystemField", {
       email: "test@example.com",
     });
-    await e.execute("add_tag_to_subscriber", { subscriber_id: 7, tag_id: 2 });
-    expect(f.post).toHaveBeenLastCalledWith("/subscriber/addTag", {
-      subscriber_id: 7,
-      tag_id: 2,
+    await e.execute("create_tag", { name: "unused-label" });
+    expect(f.post).toHaveBeenCalledWith("/page/createTag", {
+      name: "unused-label",
     });
     await expect(e.execute("create_subscriber", {})).rejects.toThrow();
     await expect(

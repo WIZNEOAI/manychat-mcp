@@ -42,22 +42,31 @@ describe("Meta policy from trusted evidence", () => {
     ).toBe(false);
     const human: MessageIntent = {
       message_tag: "HUMAN_AGENT",
-      human_agent: true,
       promotional: false,
     };
-    expect(evaluatePolicy(e, human, now).allowed).toBe(true);
-    expect(evaluatePolicy(e, human, now).warnings.join(" ")).toMatch(
-      /App Review/,
-    );
-    expect(evaluatePolicy(evidence("instagram", 169), human, now).allowed).toBe(
-      false,
-    );
     expect(
-      evaluatePolicy(e, { ...human, promotional: true }, now).allowed,
+      evaluatePolicy(e, human, now, { allowHumanAgent: true }).allowed,
+    ).toBe(true);
+    expect(
+      evaluatePolicy(e, human, now, { allowHumanAgent: true }).warnings.join(
+        " ",
+      ),
+    ).toMatch(/App Review/);
+    expect(
+      evaluatePolicy(evidence("instagram", 169), human, now, {
+        allowHumanAgent: true,
+      }).allowed,
     ).toBe(false);
-    expect(evaluatePolicy(evidence("whatsapp", 25), human, now).allowed).toBe(
-      false,
-    );
+    expect(
+      evaluatePolicy(e, { ...human, promotional: true }, now, {
+        allowHumanAgent: true,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      evaluatePolicy(evidence("whatsapp", 25), human, now, {
+        allowHumanAgent: true,
+      }).allowed,
+    ).toBe(false);
   });
   it.each(["sms", "email", "telegram"] as const)(
     "%s is outside Meta wedge, without claiming send support",

@@ -67,8 +67,9 @@ describe("HTTP gateway boundaries", () => {
   });
   it("enforces IP and credential budgets independently and fails closed on store failure", async () => {
     const ip = createHttpApp({ env: {}, ipLimit: 1, keyLimit: 100 }).app;
+    expect((await request(ip).get("/unknown")).status).toBe(404);
+    expect((await request(ip).get("/unknown")).status).toBe(429);
     expect((await request(ip).get("/health")).status).toBe(200);
-    expect((await request(ip).get("/health")).status).toBe(429);
     const key = createHttpApp({ env: {}, ipLimit: 100, keyLimit: 1 }).app;
     expect(
       (
@@ -91,7 +92,8 @@ describe("HTTP gateway boundaries", () => {
         close: async () => {},
       },
     }).app;
-    const r = await request(broken).get("/health");
+    expect((await request(broken).get("/health")).status).toBe(200);
+    const r = await request(broken).get("/unknown");
     expect(r.status).toBe(503);
     expect(r.text).not.toContain("private-store-details");
   });
@@ -127,13 +129,112 @@ describe("HTTP gateway boundaries", () => {
     );
     const { app } = createHttpApp({ env: {}, ipLimit: 1 });
     expect(
-      (await request(app).get("/health").set("X-Forwarded-For", "198.51.100.1"))
-        .status,
-    ).toBe(200);
+      (
+        await request(app)
+          .get("/unknown")
+          .set("X-Forwarded-For", "198.51.100.1")
+      ).status,
+    ).toBe(404);
     expect(
-      (await request(app).get("/health").set("X-Forwarded-For", "198.51.100.2"))
-        .status,
+      (
+        await request(app)
+          .get("/unknown")
+          .set("X-Forwarded-For", "198.51.100.2")
+      ).status,
     ).toBe(429);
+  });
+  it.each([{ TRUST_PROXY_HOPS: "1" }, { TRUST_PROXY_CIDRS: "loopback" }])(
+    "separates clients behind the configured proxy without trusting a spoofed earlier hop: %j",
+    async (proxy) => {
+      const { app, close } = createHttpApp({
+        env: {
+          NODE_ENV: "production",
+          REDIS_URL: "redis://offline.invalid",
+          ...proxy,
+        },
+        rateStore: new MemoryRateStore(),
+        ipLimit: 1,
+      });
+      try {
+        expect(
+          (
+            await request(app)
+              .get("/unknown")
+              .set("X-Forwarded-For", "198.51.100.99, 203.0.113.1")
+          ).status,
+        ).toBe(404);
+        expect(
+          (
+            await request(app)
+              .get("/unknown")
+              .set("X-Forwarded-For", "198.51.100.98, 203.0.113.1")
+          ).status,
+        ).toBe(429);
+        expect(
+          (
+            await request(app)
+              .get("/unknown")
+              .set("X-Forwarded-For", "203.0.113.2")
+          ).status,
+        ).toBe(404);
+        expect(
+          (
+            await request(app)
+              .get("/health")
+              .set("X-Forwarded-For", "203.0.113.1")
+          ).status,
+        ).toBe(200);
+      } finally {
+        await close();
+      }
+    },
+  );
+  it.each([
+    {},
+    { TRUST_PROXY_CIDRS: "  ,  " },
+    { TRUST_PROXY_HOPS: "0" },
+    { TRUST_PROXY_HOPS: "1.5" },
+    { TRUST_PROXY_HOPS: "1e1" },
+    { TRUST_PROXY_HOPS: "17" },
+    { TRUST_PROXY_HOPS: "1", TRUST_PROXY_CIDRS: "loopback" },
+  ])(
+    "rejects absent or ambiguous production proxy configuration: %j",
+    (proxy) => {
+      expect(() =>
+        createHttpApp({
+          env: {
+            NODE_ENV: "production",
+            REDIS_URL: "redis://offline.invalid",
+            ...proxy,
+          },
+          rateStore: new MemoryRateStore(),
+        }),
+      ).toThrow(/TRUST_PROXY/);
+    },
+  );
+  it("applies browser security headers to health, unknown routes and credential errors", async () => {
+    const { app, close } = createHttpApp({ env: {} });
+    try {
+      const responses = [
+        await request(app).get("/health"),
+        await request(app).get("/unknown"),
+        await request(app).post("/mcp").send(rpc("tools/list")),
+      ];
+      expect(responses.map((response) => response.status)).toEqual([
+        200, 404, 401,
+      ]);
+      for (const response of responses) {
+        expect(response.headers["content-security-policy"]).toBe(
+          "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'",
+        );
+        expect(response.headers["x-frame-options"]).toBe("DENY");
+        expect(response.headers["strict-transport-security"]).toBe(
+          "max-age=31536000",
+        );
+      }
+    } finally {
+      await close();
+    }
   });
   it("is stateless across independent app instances and shares rate budgets when configured", async () => {
     const rate = new MemoryRateStore();

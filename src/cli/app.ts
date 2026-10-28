@@ -59,5 +59,5 @@ Usage: manychat --version | --help
        manychat send text ID TEXT | send content ID JSON | send flow ID FLOW
        manychat call TOOL_NAME JSON
 Credentials: MANYCHAT_API_KEY for stdio/CLI; X-ManyChat-API-Key per HTTP request.
-All send commands use the same fail-closed policy guard. No raw POST or policy override.
+Message, flow, tag, and subscriber-field writes may trigger automations; guarded operations fail closed without trusted evidence. No raw POST or policy override. HUMAN_AGENT requires server-side MANYCHAT_ALLOW_HUMAN_AGENT=1 and remains human-only (maximum seven days).
 `;
