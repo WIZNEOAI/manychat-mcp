@@ -1,0 +1,44 @@
+{
+  "name": "mcp-manychat",
+  "version": "0.2.0",
+  "description": "ManyChat MCP server and CLI with a fail-closed Meta messaging guard",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": { "manychat": "dist/index.js", "manychat-mcp": "dist/index.js" },
+  "files": ["dist", "skills", "docs", "README.md", "README.es-MX.md", "LICENSE", "NOTICE.md", "CHANGELOG.md"],
+  "engines": { "node": ">=22.0.0" },
+  "packageManager": "pnpm@11.25.0",
+  "license": "AGPL-3.0-or-later",
+  "repository": { "type": "git", "url": "https://github.com/WIZNEOAI/manychat-mcp-next.git" },
+  "bugs": { "url": "https://github.com/WIZNEOAI/manychat-mcp-next/issues" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests scripts vitest.config.ts",
+    "test": "vitest run",
+    "test:mutation": "node scripts/mutation.mjs",
+    "smoke:readonly": "node scripts/smoke-readonly.mjs",
+    "prepack": "pnpm build",
+    "start": "node dist/index.js",
+    "start:mcp:http": "node dist/index.js mcp serve --transport http"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "express": "4.21.2",
+    "ioredis": "5.8.2",
+    "zod": "4.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "eslint": "9.39.1",
+    "typescript-eslint": "8.48.0",
+    "@types/express": "5.0.0",
+    "@types/node": "22.19.1",
+    "@types/supertest": "6.0.3",
+    "supertest": "7.1.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
