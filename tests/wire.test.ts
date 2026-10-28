@@ -248,13 +248,84 @@ describe("real CLI and MCP wire contracts (offline)", () => {
         .find((frame) => frame.id === "legacy");
       expect(response?.error).toBeUndefined();
       expect(response?.result).toMatchObject({
-        protocolVersion: expect.any(String),
+        protocolVersion: "2025-03-26",
       });
       expect(legacyErr.text).not.toContain(offlineKey);
     } finally {
       legacy.stdin?.end();
       await stop(legacy);
       await Promise.all([legacyOut.done, legacyErr.done]);
+    }
+  }, 20000);
+
+  it("rejects a legacy version switch on a modern stdio connection and keeps its original era", async () => {
+    const proc = child(["mcp", "serve", "--transport", "stdio"], {
+      MANYCHAT_API_KEY: offlineKey,
+    });
+    const stdout = collect(proc.stdout);
+    const stderr = collect(proc.stderr);
+    const frame = async (
+      id: string,
+      method: string,
+      params: Record<string, unknown>,
+    ) => {
+      proc.stdin?.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
+      );
+      await viWait(() => stdout.text.includes(`"id":"${id}"`));
+      return stdout.text
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .find((message) => message.id === id);
+    };
+    const modernMeta = {
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    };
+    try {
+      const opening = await frame(
+        "modern-opening",
+        "server/discover",
+        modernMeta,
+      );
+      expect(opening?.error).toBeUndefined();
+      expect(
+        (opening?.result as { supportedVersions: string[] }).supportedVersions,
+      ).toContain("2026-07-28");
+      // Discovery is a probe: a subsequent modern operation pins the era.
+      // Exercise the established modern connection, not discovery fallback.
+      const established = await frame(
+        "modern-established",
+        "tools/list",
+        modernMeta,
+      );
+      expect(established?.error).toBeUndefined();
+      expect((established?.result as { tools: unknown[] }).tools).toHaveLength(
+        28,
+      );
+      const switched = await frame("forbidden-switch", "initialize", {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "wire-test", version: "1" },
+      });
+      expect(switched?.result).toBeUndefined();
+      expect(switched?.error).toMatchObject({
+        code: -32022,
+        data: { requested: "2025-03-26", supported: ["2026-07-28"] },
+      });
+      const stillModern = await frame("still-modern", "tools/list", modernMeta);
+      expect(stillModern?.error).toBeUndefined();
+      expect((stillModern?.result as { tools: unknown[] }).tools).toHaveLength(
+        28,
+      );
+      expect(stderr.text).not.toContain(offlineKey);
+    } finally {
+      proc.stdin?.end();
+      await stop(proc);
+      await Promise.all([stdout.done, stderr.done]);
     }
   }, 20000);
 
