@@ -11,7 +11,8 @@
   "files": [
     "dist",
     "skills",
-    "docs",
+    "docs/**",
+    "!docs/releasing.md",
     "README.md",
     "README.es-MX.md",
     "LICENSE",
@@ -25,10 +26,10 @@
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "https://github.com/WIZNEOAI/manychat-mcp-next.git"
+    "url": "https://github.com/WIZNEOAI/manychat-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/WIZNEOAI/manychat-mcp-next/issues"
+    "url": "https://github.com/WIZNEOAI/manychat-mcp/issues"
   },
   "scripts": {
     "build": "tsc",
@@ -60,5 +61,18 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.48.0",
     "vitest": "3.2.7"
-  }
+  },
+  "homepage": "https://github.com/WIZNEOAI/manychat-mcp#readme",
+  "author": "WIZNEOAI",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "manychat",
+    "mcp",
+    "model-context-protocol",
+    "chatbot",
+    "crm",
+    "messaging"
+  ]
 }

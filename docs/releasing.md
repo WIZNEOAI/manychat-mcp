@@ -25,7 +25,7 @@ Do not publish from an unreviewed branch or fork. Never include API keys or othe
 
 Before creating a tag, run `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm test:mutation` and `gitleaks git --redact --no-banner`. Inspect `npm pack --dry-run --json`: only the intended distribution, public docs/skills and license material should ship. Do not ship personal client configs or local environment files. Check exact-head CI in GitHub, not a check from an earlier commit.
 
-For the first release, update the temporary repository name/source-install instructions after the owner approves the final name and visibility. Version 0.2.0 is not published by this branch.
+The package version is 0.2.0; this document does not claim that it has been published. Before any publication, verify the approved repository identity, package contents, and exact release commit.
 
 ## Disabled-by-default publish workflow
 

@@ -10,8 +10,14 @@ This document separates published platform rules from what this server can curre
 | Deprecated Messenger/Instagram tags | Block `CONFIRMED_EVENT_UPDATE`, `POST_PURCHASE_UPDATE`, and `ACCOUNT_UPDATE`. The presence of an old Swagger example does not make a deprecated tag valid. | Meta Messenger Platform changelog, 2026-03-27; effective 2026-04-27: https://developers.facebook.com/documentation/business-messaging/messenger-platform/changelog |
 | HUMAN_AGENT | Do not treat as automation permission. It requires a human response, App Review, and business verification, and applies for up to seven days under Meta's conditions. | Meta Human Agent feature reference: https://developers.facebook.com/docs/features-reference/human-agent/ (consulted 2026-10-27). |
 | Promotional content under any tag | Block. A tag cannot turn promotional content into a permitted service message. | Meta business messaging policies and category rules: https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing; policy application must follow current platform documentation. |
-| Telegram, SMS, Email | Outside this Meta policy wedge. This project makes no send-support promise for these channels. | Scope decision in project canon dated 2026-10-27; not a claim about the capabilities of ManyChat or those platforms. |
+| Telegram, SMS, Email | Outside this Meta policy wedge. This project makes no send-support promise for these channels. | Project scope decision (2026-10-27); not a claim about the capabilities of ManyChat or those platforms. |
 | TikTok | No confirmed sending capability; make no send-support claim. | Capability not confirmed in the consulted official ManyChat schema (2026-10-27). |
+
+## CRM writes and flow limits
+
+Version 0.2.0 supports reads and CRM operations, but CRM mutations that can trigger a message are not an unguarded automation promise. Tag and custom-field writes use the message guard; absent a trusted evidence provider they are blocked, just like sends. No evidence provider is shipped or configured by default. Other mutations (subscriber create/update, tag removal, and bot-field writes) are distinct operations whose message-trigger behavior is not established here; treat them as an operational risk and do not assume they are safe to automate.
+
+Flow eligibility is checked only at dispatch time. A flow is opaque to this server: delayed steps, later messages, and channel changes inside ManyChat are not inspected or covered by the current-window check. The sender must review a flow's contents and behavior. A flow allowlist is a possible future control, not implemented.
 
 ## Evidence and failure behavior
 

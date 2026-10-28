@@ -56,13 +56,34 @@ The authorization flow requires PKCE S256 and returns a supplied opaque `state` 
 
 The engine fetches `getInfo` for each validation/send and requires its `id` and `last_interaction` to match that proof. The provider must bind events to the credential's account; a subscriber ID alone is not a cross-account authorization boundary. For an ad extension, `adReferral` must identify the matching Click-to-Messenger or Click-to-Direct origin, include `verified: true` and the first user-message timestamp. Seven days start at that first message, not the latest interaction. Without that proof, only the standard 24-hour rule applies. Future/invalid timestamps block.
 
-`human_agent: true` is an explicit human-support declaration, not proof that a person wrote the text or that Meta granted App Review. The sender remains responsible for both. Tagged content requires `promotional: false`; the server does not perform semantic promotion classification. A flow is opaque: the guard checks dispatch eligibility, not subsequent ManyChat automation steps. This limitation applies equally to CLI and MCP.
+Tools reject `human_agent`; only server configuration `MANYCHAT_ALLOW_HUMAN_AGENT=1` enables the HUMAN_AGENT path, and it remains capped at seven days. This setting is off by default and must remain off on unattended agent deployments. It is not proof that a person wrote the text or that Meta granted App Review. The sender remains responsible for both. Tagged content requires `promotional: false`; the server does not perform semantic promotion classification. A flow is opaque: the guard checks dispatch eligibility, not subsequent ManyChat automation steps. This limitation applies equally to CLI and MCP.
 
 ## Multiple instances
 
 MCP uses SDK `createMcpHandler` and `serveStdio` for revision 2026-07-28. HTTP creates a fresh server from the request credential, stores no MCP session and needs no sticky routing. OAuth grants and rate budgets are separate application state: production requires shared Redis; memory stores are development-only. Credential-hash/IP rate budgets use atomic Redis Lua counters. Production Redis must support GETDEL (6.2+), TLS and scoped ACLs. OAuth stores upstream keys in Redis records; these are BYOK grants, not an implemented tenant vault. Protect transport, access and backups accordingly.
 
 `render.yaml` declares a Starter web service with automatic deployment off. The owner must supply `REDIS_URL` before starting it; the file provisions no Redis or existing infrastructure. The container runs as `node`, caps the Node heap and exposes a minimal health check. Render controls instance CPU/memory limits through its plan; no resource settings are changed by this repository.
+
+## Automation-triggering writes
+
+| Operation | Enforcement | Reason |
+|---|---|---|
+| `add_tag_to_subscriber`, `add_tag_to_subscriber_by_name`, `set_custom_field`, `set_custom_field_by_name`, `set_custom_fields_bulk` | Same evidence/window guard as `send_flow`, on each call | Tag-applied/field-changed automations can send messages. |
+| `update_subscriber`, `remove_tag_from_subscriber`, `remove_tag_from_subscriber_by_name` | Same subscriber guard | Contact changes and tag removal may trigger automations too. |
+| `create_subscriber`, `set_bot_field` | Always blocked with `AUTOMATION_SCOPE_UNKNOWN` | A new subscriber has no existing interaction to validate; a page-wide value has no single subscriber scope. Neither can establish eligibility for every affected recipient. |
+| `create_tag`, `create_custom_field` | Validated metadata operations, no subscriber guard | These create definitions; they do not apply a tag or change an existing subscriber's field value. This is not a guarantee about arbitrary external automations configured by the operator. |
+
+Without the future evidence adapter, subscriber-scoped automation writes are blocked along with sends. An adapter that permits dispatch does not audit the contents, delays or channel transitions of an opaque flow. A future flow allowlist may reduce the approved surface; no allowlist is implemented or claimed here.
+
+## OAuth storage and registration controls
+
+Redis credential records (authorization codes, access tokens and refresh tokens) are encrypted as a whole with AES-256-GCM, a fresh 96-bit nonce and an authentication tag. Record kind plus the SHA-256 key identifier are authenticated as additional data, so moving ciphertext to a different token key is rejected. Redis key names use SHA-256 of the code/token, never its raw value. `OAUTH_ENC_KEY` must contain exactly 64 hexadecimal characters representing 32 cryptographically random bytes. Every Redis store validates it before opening its connection; production validates it at startup. Keep it in the secret manager, identical across instances and separate from Redis credentials. Memory stores are development-only.
+
+The encrypted storage format does not migrate plaintext grants. Upgrading or rotating `OAUTH_ENC_KEY` requires reconnecting clients; old encrypted grants become invalid. The operator must revoke old grants and retire legacy plaintext keys/backups through a separately approved migration, not an automatic destructive cleanup. Redis transport, scoped ACLs and backups still require protection. This is grant encryption, not a tenant key vault.
+
+`POST /register` has its own quota: five attempts per client IP/hour, including invalid metadata, plus 1,000 attempts/hour globally to bound distinct-IP quota state. The registry accepts at most 1,000 unexpired clients. Unused registrations expire after 24 hours; a successful authorization extends the client lease to 30 days. Reads do not extend leases. A client with an expired registration must register again before starting a new authorization flow; existing grant expiry remains independent. Memory operations are development-only; Redis uses atomic Lua scripts with server time, expiring records and a bounded sorted-set index. Quota/cap exhaustion returns 429 with Retry-After, and storage failure returns a generic error. These Lua paths have not been verified against a real Redis deployment.
+
+Production must configure exactly one trusted-proxy mechanism: `TRUST_PROXY_CIDRS` or `TRUST_PROXY_HOPS` (integer 1–16). Render's blueprint sets one hop. Hop-count trust is safe only with exclusive proxy ingress and no direct/shorter routes. Health checks run before application rate limiting. HTTP and OAuth pages carry CSP frame restrictions, X-Frame-Options DENY and HSTS; HTTPS must terminate at a trusted ingress.
 
 ## Future-only extension points
 

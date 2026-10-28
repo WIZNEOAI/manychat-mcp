@@ -7,7 +7,7 @@ Versions follow [Semantic Versioning](https://semver.org/); before 1.0, minor re
 
 ## [0.2.0] - 2026-10-28
 
-This entry describes the proposed version. No tag, GitHub Release or npm publication accompanies this branch.
+This entry documents package version 0.2.0; it does not assert that a release or npm publication has occurred.
 
 ### Added
 

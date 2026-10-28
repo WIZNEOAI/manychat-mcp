@@ -17,3 +17,6 @@ services:
         sync: false
       - key: TRUST_PROXY_CIDRS
         sync: false
+
+      - key: TRUST_PROXY_HOPS
+        value: "1"

@@ -4,7 +4,7 @@
 
 An open-source MCP server and CLI for reading ManyChat data and requesting policy-checked messaging actions.
 
-> Clean rebuild. Read the limitations before connecting a live account: ManyChat's current subscriber schema does not identify which channel produced the last interaction. The send guard therefore fails closed until trusted channel evidence is available.
+> **Version 0.2.0: read access and CRM inspection (searches, tags, and fields). Messaging and guarded CRM writes are blocked.** ManyChat provides no trusted interaction-channel evidence, so the guard fails closed—including when no evidence provider is configured. Do not treat this release as a messaging automation product. Sending and guarded writes require a future, evidenced integration (target 0.3.0; not shipped).
 
 ## How it works
 
@@ -16,19 +16,16 @@ flowchart LR
   G -->|missing or unsafe evidence| B[Block with explanation]
 ```
 
-## Install from source
+## Install
 
-Version 0.2.0 on this branch has not been published to npm. The public 0.1.0 package does not include this rebuild. You currently need access to this private repository. Install Node 22 or newer and pnpm 11.25.0 first.
+Version `0.2.0` is the package version; publication is planned, not currently claimed. Once published, run the package directly with `npx -y mcp-manychat`. It exposes the `manychat` and `manychat-mcp` commands. Node 22 or newer is required.
 
 ```sh
-git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git
-cd manychat-mcp-next
-pnpm install --frozen-lockfile
-pnpm build
-node dist/index.js --version
+npx -y mcp-manychat --version
+npx -y mcp-manychat page info
 ```
 
-Use the absolute path to `dist/index.js` in your client. The primary executable is `manychat`; `manychat-mcp` is an alias of the same entry point. See [client configurations](docs/connect.md). Authenticate to GitHub outside the chat.
+See [client configurations](docs/connect.md). No source clone, branch checkout, or absolute build path is needed.
 
 ## Paste this to your agent
 
@@ -36,27 +33,27 @@ These client prompts use placeholders. Put the API key in your local environment
 
 ### Claude Code
 ```text
-Set up the ManyChat MCP server for this workspace using the official project instructions. Use stdio and read MANYCHAT_API_KEY from my local environment. Do not ask me to paste the key into chat or write it to a tracked file. Verify setup with a read-only page info call. Do not send messages unless I explicitly request one and the policy guard approves it. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the Claude Code configuration in docs/connect.md. Substitute the real checkout path.
+Set up the ManyChat MCP server for this workspace using the official project instructions. Use stdio and read MANYCHAT_API_KEY from my local environment. Do not ask me to paste the key into chat or write it to a tracked file. Verify setup with a read-only page info call. Do not send messages unless I explicitly request one and the policy guard approves it. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the Claude Code configuration in docs/connect.md.
 ```
 ### Claude Desktop
 ```text
-Configure ManyChat MCP for Claude Desktop with the documented stdio command. Reference MANYCHAT_API_KEY through the operating system's local environment or secret manager; never include its value in this chat or a config committed to source control. Test only with page info. Do not send messages without my explicit request and a successful policy check. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the Claude Desktop configuration in docs/connect.md. Substitute the real checkout path.
+Configure ManyChat MCP for Claude Desktop with the documented stdio command. Reference MANYCHAT_API_KEY through the operating system's local environment or secret manager; never include its value in this chat or a config committed to source control. Test only with page info. Do not send messages without my explicit request and a successful policy check. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the Claude Desktop configuration in docs/connect.md.
 ```
 ### Cursor
 ```text
-Add the documented ManyChat MCP stdio server to my local Cursor MCP configuration. Keep MANYCHAT_API_KEY outside the repository and do not ask me to share it in chat. Verify with page info only. Require my explicit approval before any send, and respect every policy-guard block. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the Cursor configuration in docs/connect.md. Substitute the real checkout path.
+Add the documented ManyChat MCP stdio server to my local Cursor MCP configuration. Keep MANYCHAT_API_KEY outside the repository and do not ask me to share it in chat. Verify with page info only. Require my explicit approval before any send, and respect every policy-guard block. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the Cursor configuration in docs/connect.md.
 ```
 ### Codex
 ```text
-Configure the ManyChat MCP server using the documented stdio setup for Codex. Read MANYCHAT_API_KEY from a local secret source; do not print, request in chat, or commit the value. Verify with a read-only page info call. Do not send unless I explicitly request it and the guard permits it. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the Codex configuration in docs/connect.md. Substitute the real checkout path.
+Configure the ManyChat MCP server using the documented stdio setup for Codex. Read MANYCHAT_API_KEY from a local secret source; do not print, request in chat, or commit the value. Verify with a read-only page info call. Do not send unless I explicitly request it and the guard permits it. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the Codex configuration in docs/connect.md.
 ```
 ### OpenCode
 ```text
-Set up the documented ManyChat MCP stdio connection in OpenCode. Keep MANYCHAT_API_KEY in a local environment or secret store, never in this prompt or tracked files. Test with page info. Ask before sending and treat a guard rejection as final. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the OpenCode configuration in docs/connect.md. Substitute the real checkout path.
+Set up the documented ManyChat MCP stdio connection in OpenCode. Keep MANYCHAT_API_KEY in a local environment or secret store, never in this prompt or tracked files. Test with page info. Ask before sending and treat a guard rejection as final. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the OpenCode configuration in docs/connect.md.
 ```
 ### Hermes
 ```text
-Configure ManyChat MCP using the documented stdio transport. Source MANYCHAT_API_KEY from a local secret store and never include its value in chat or repository files. Verify with page info only. Do not send messages unless I explicitly request it and the policy guard approves. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the Hermes configuration in docs/connect.md. Substitute the real checkout path.
+Configure ManyChat MCP using the documented stdio transport. Source MANYCHAT_API_KEY from a local secret store and never include its value in chat or repository files. Verify with page info only. Do not send messages unless I explicitly request it and the policy guard approves. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the Hermes configuration in docs/connect.md.
 ```
 ### n8n (HTTP)
 ```text
@@ -64,7 +61,7 @@ Create an n8n HTTP MCP connection to the configured ManyChat MCP endpoint at /mc
 ```
 ### VS Code
 ```text
-Configure the documented ManyChat MCP stdio server for VS Code. Keep MANYCHAT_API_KEY in a local environment or secret manager, never in this prompt or tracked workspace files. Verify with page info only. Ask me before any send and honor policy-guard blocks. If no checkout exists, run git clone --branch feat/clean-rebuild --single-branch https://github.com/WIZNEOAI/manychat-mcp-next.git. In the checkout run pnpm install --frozen-lockfile and pnpm build. Register command node with arguments ["/ABSOLUTE-PATH/manychat-mcp-next/dist/index.js", "mcp", "serve", "--transport", "stdio"] using the VS Code configuration in docs/connect.md. Substitute the real checkout path.
+Configure the documented ManyChat MCP stdio server for VS Code. Keep MANYCHAT_API_KEY in a local environment or secret manager, never in this prompt or tracked workspace files. Verify with page info only. Ask me before any send and honor policy-guard blocks. Register command `npx` with arguments `["-y", "mcp-manychat", "mcp", "serve", "--transport", "stdio"]` using the VS Code configuration in docs/connect.md.
 ```
 
 ## CLI
@@ -76,12 +73,14 @@ manychat mcp serve --transport http
 manychat page info
 manychat tags list
 manychat subscribers get ID
+manychat validate ID
+manychat call TOOL_NAME JSON
 manychat send text ID TEXT
 manychat send content ID JSON
 manychat send flow ID FLOW
 ```
 
-Every CLI send uses the same policy guard as MCP sends. A blocked send is expected when channel evidence is unavailable. HTTP serves MCP at `/mcp`; every request needs `X-ManyChat-API-Key`. HTTP does not inherit an environment API key.
+The CLI supports `validate ID` and `call TOOL_NAME JSON`. Version 0.2.0 read/CRM operations are available; tag/field operations that could trigger messaging are guarded and blocked without verified evidence. Every CLI send uses the same policy guard as MCP sends. A blocked send is expected when channel evidence is unavailable. HTTP serves MCP at `/mcp`; every request needs `X-ManyChat-API-Key`. HTTP does not inherit an environment API key.
 
 ## Channel support, honestly
 
@@ -118,6 +117,11 @@ See [architecture](docs/architecture.md), [policy and sources](docs/policy.md), 
 
 `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` and `pnpm test:mutation` need no ManyChat account. Tests permit local sockets but block external fetches. The live smoke is separate and optional: set `MANYCHAT_API_KEY` and `MANYCHAT_SMOKE_SUBSCRIBER_NAME` locally before `pnpm smoke:readonly`. It performs three GETs and prints no subscriber data.
 
-HTTP limits requests to 120/IP/minute and 60/credential-hash/minute, caps bodies at 32 KB, uses a 20 s upstream deadline and socket timeouts. Production requires `REDIS_URL` for shared counters. OAuth additionally requires `OAUTH_STORE=redis` and an HTTPS `MCP_BASE_URL`. MCP has no sessions or instance affinity. Memory storage is development-only. Configure `TRUST_PROXY_CIDRS` only for trusted proxies and `MCP_ALLOWED_ORIGINS` with exact origins. Terminate TLS at ingress and secure Redis with TLS/ACLs.
+**Deployment status:** Docker, Render, and OAuth with Redis have not been verified in a real deployment. HTTP limits requests to 120/IP/minute and 60/credential-hash/minute, caps bodies at 32 KB, uses a 20 s upstream deadline and socket timeouts. Production requires `REDIS_URL` for shared counters. OAuth additionally requires `OAUTH_STORE=redis` and an HTTPS `MCP_BASE_URL`. MCP has no sessions or instance affinity. Memory storage is development-only. Configure `TRUST_PROXY_CIDRS` only for trusted proxies and `MCP_ALLOWED_ORIGINS` with exact origins. Terminate TLS at ingress and secure Redis with TLS/ACLs.
 
 `send_content` accepts text, image, video and audio; this version does not accept Dynamic Content cards, buttons or actions. A flow is opaque: the guard checks its dispatch, not later messages inside ManyChat. The sender must review the flow. POST requests are not retried and delivery is not idempotent. The `promotional` flag is not a text classifier; the sender must classify intent honestly.
+
+
+## Server configuration / Configuración del servidor
+
+`MCP_REMOTE_AUTH` selects `manychat_header` (default) or `oauth`; the modes are exclusive. `PORT` defaults to `3000`; `HOST` to `0.0.0.0`. `LOG_LEVEL` accepts `debug`, `info`, `warn`, or `error` (default `info`). Production requires either `TRUST_PROXY_CIDRS` for known ingress proxies or `TRUST_PROXY_HOPS` (integer 1–16), never both. Render uses `TRUST_PROXY_HOPS=1`; hop-count trust is safe only when every request arrives through that proxy and direct/shorter paths are blocked. `/health` bypasses rate limits. `MANYCHAT_ALLOW_HUMAN_AGENT=1` is a server-only opt-in, off by default, for human-operated support; tools cannot self-declare human status. It does not prove human authorship or Meta approval. Every Redis OAuth store requires `OAUTH_ENC_KEY`: exactly 64 hexadecimal characters (32 random bytes), shared securely across instances. OAuth records use AES-256-GCM; credential keys use SHA-256 identifiers. See [architecture](docs/architecture.md) for registration limits and key rotation constraints.
