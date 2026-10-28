@@ -32,8 +32,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src tests scripts vitest.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "lint": "eslint src tests scripts vitest.config.ts && prettier --check src tests scripts vitest.config.ts eslint.config.mjs tsconfig.json tsconfig.test.json",
     "test": "vitest run",
     "test:mutation": "node scripts/mutation.mjs",
     "smoke:readonly": "node scripts/smoke-readonly.mjs",
@@ -54,6 +54,7 @@
     "@types/node": "22.19.1",
     "@types/supertest": "6.0.3",
     "eslint": "9.39.1",
+    "prettier": "3.6.2",
     "supertest": "7.3.1",
     "tsx": "4.20.6",
     "typescript": "5.9.3",

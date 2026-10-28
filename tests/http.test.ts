@@ -2,9 +2,27 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createHttpApp } from "../src/mcp/http.js";
 import { MemoryRateStore } from "../src/mcp/rate-limit.js";
-const headers = { "x-manychat-api-key": "offline-test-credential", accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28" };
-const rpc = (method: string, params = {}) => ({ jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } } });
-function parse(response: { text: string }) { const frame = response.text.split("\n").find(l => l.startsWith("data: ")); return JSON.parse(frame ? frame.slice(6) : response.text); }
+const headers = {
+  "x-manychat-api-key": "offline-test-credential",
+  accept: "application/json, text/event-stream",
+  "MCP-Protocol-Version": "2026-07-28",
+};
+const rpc = (method: string, params = {}) => ({
+  jsonrpc: "2.0",
+  id: 1,
+  method,
+  params: {
+    ...params,
+    _meta: {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientCapabilities": {},
+    },
+  },
+});
+function parse(response: { text: string }) {
+  const frame = response.text.split("\n").find((l) => l.startsWith("data: "));
+  return JSON.parse(frame ? frame.slice(6) : response.text);
+}
 describe("HTTP gateway boundaries", () => {
   it("health discloses no auth/version/internal configuration and unknown routes are 404", async () => {
     const { app } = createHttpApp({ env: {} });
@@ -12,72 +30,212 @@ describe("HTTP gateway boundaries", () => {
     expect((await request(app).get("/unknown")).status).toBe(404);
   });
   it("rejects missing credentials even if a server environment key exists", async () => {
-    const { app } = createHttpApp({ env: { MANYCHAT_API_KEY: "server-key-not-for-visitors" } });
-    expect((await request(app).post("/mcp").send(rpc("tools/list"))).status).toBe(401);
+    const { app } = createHttpApp({
+      env: { MANYCHAT_API_KEY: "server-key-not-for-visitors" },
+    });
+    expect(
+      (await request(app).post("/mcp").send(rpc("tools/list"))).status,
+    ).toBe(401);
   });
   it("rejects unsupported methods, oversize bodies, malformed JSON and hostile origins", async () => {
     const { app } = createHttpApp({ env: {} });
-    for (const method of ["get", "delete"] as const) expect((await request(app)[method]("/mcp")).status).toBe(405);
-    expect((await request(app).post("/mcp").set(headers).send({ x: "x".repeat(32768) })).status).toBe(413);
-    const malformed = await request(app).post("/mcp").set(headers).set("Content-Type", "application/json").send('{"x":"secret-echo-canary"');
-    expect(malformed.status).toBe(400); expect(malformed.text).not.toContain("secret-echo-canary");
-    expect((await request(app).post("/mcp").set({ ...headers, Origin: "https://evil.example" }).send(rpc("tools/list"))).status).toBe(403);
+    for (const method of ["get", "delete"] as const)
+      expect((await request(app)[method]("/mcp")).status).toBe(405);
+    expect(
+      (
+        await request(app)
+          .post("/mcp")
+          .set(headers)
+          .send({ x: "x".repeat(32768) })
+      ).status,
+    ).toBe(413);
+    const malformed = await request(app)
+      .post("/mcp")
+      .set(headers)
+      .set("Content-Type", "application/json")
+      .send('{"x":"secret-echo-canary"');
+    expect(malformed.status).toBe(400);
+    expect(malformed.text).not.toContain("secret-echo-canary");
+    expect(
+      (
+        await request(app)
+          .post("/mcp")
+          .set({ ...headers, Origin: "https://evil.example" })
+          .send(rpc("tools/list"))
+      ).status,
+    ).toBe(403);
   });
   it("enforces IP and credential budgets independently and fails closed on store failure", async () => {
     const ip = createHttpApp({ env: {}, ipLimit: 1, keyLimit: 100 }).app;
     expect((await request(ip).get("/health")).status).toBe(200);
     expect((await request(ip).get("/health")).status).toBe(429);
     const key = createHttpApp({ env: {}, ipLimit: 100, keyLimit: 1 }).app;
-    expect((await request(key).post("/mcp").set({ ...headers, "Mcp-Method": "tools/list" }).send(rpc("tools/list"))).status).toBe(200);
-    expect((await request(key).post("/mcp").set(headers).send(rpc("tools/list"))).status).toBe(429);
-    const broken = createHttpApp({ env: {}, rateStore: { take: async () => { throw new Error("private-store-details"); }, close: async () => {} } }).app;
-    const r = await request(broken).get("/health"); expect(r.status).toBe(503); expect(r.text).not.toContain("private-store-details");
+    expect(
+      (
+        await request(key)
+          .post("/mcp")
+          .set({ ...headers, "Mcp-Method": "tools/list" })
+          .send(rpc("tools/list"))
+      ).status,
+    ).toBe(200);
+    expect(
+      (await request(key).post("/mcp").set(headers).send(rpc("tools/list")))
+        .status,
+    ).toBe(429);
+    const broken = createHttpApp({
+      env: {},
+      rateStore: {
+        take: async () => {
+          throw new Error("private-store-details");
+        },
+        close: async () => {},
+      },
+    }).app;
+    const r = await request(broken).get("/health");
+    expect(r.status).toBe(503);
+    expect(r.text).not.toContain("private-store-details");
   });
   it("allows OAuth's own form origin but rejects cross-origin credential submission", async () => {
-    const { app } = createHttpApp({ env: { MCP_REMOTE_AUTH: "oauth", MCP_BASE_URL: "https://mcp.example" } });
-    const own = await request(app).post("/authorize").set("Origin", "https://mcp.example").send({});
+    const { app } = createHttpApp({
+      env: { MCP_REMOTE_AUTH: "oauth", MCP_BASE_URL: "https://mcp.example" },
+    });
+    const own = await request(app)
+      .post("/authorize")
+      .set("Origin", "https://mcp.example")
+      .send({});
     expect(own.status).toBe(400);
     expect(own.body).toEqual({ error: "invalid_request" });
-    expect((await request(app).post("/authorize").set("Origin", "https://evil.example").send({})).status).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post("/authorize")
+          .set("Origin", "https://evil.example")
+          .send({})
+      ).status,
+    ).toBe(403);
   });
   it("does not accept X-ManyChat-API-Key to bypass OAuth", async () => {
     const { app } = createHttpApp({ env: { MCP_REMOTE_AUTH: "oauth" } });
-    expect((await request(app).post("/mcp").set(headers).send(rpc("tools/list"))).status).toBe(401);
+    expect(
+      (await request(app).post("/mcp").set(headers).send(rpc("tools/list")))
+        .status,
+    ).toBe(401);
   });
   it("requires shared counters in production and never trusts arbitrary forwarded IPs", async () => {
-    expect(() => createHttpApp({ env: { NODE_ENV: "production" } })).toThrow("REDIS_URL");
+    expect(() => createHttpApp({ env: { NODE_ENV: "production" } })).toThrow(
+      "REDIS_URL",
+    );
     const { app } = createHttpApp({ env: {}, ipLimit: 1 });
-    expect((await request(app).get("/health").set("X-Forwarded-For", "198.51.100.1")).status).toBe(200);
-    expect((await request(app).get("/health").set("X-Forwarded-For", "198.51.100.2")).status).toBe(429);
+    expect(
+      (await request(app).get("/health").set("X-Forwarded-For", "198.51.100.1"))
+        .status,
+    ).toBe(200);
+    expect(
+      (await request(app).get("/health").set("X-Forwarded-For", "198.51.100.2"))
+        .status,
+    ).toBe(429);
   });
   it("is stateless across independent app instances and shares rate budgets when configured", async () => {
     const rate = new MemoryRateStore();
-    const apps = Array.from({ length: 3 }, () => createHttpApp({ env: {}, rateStore: rate, keyLimit: 3 }).app);
+    const apps = Array.from(
+      { length: 3 },
+      () => createHttpApp({ env: {}, rateStore: rate, keyLimit: 3 }).app,
+    );
     for (let i = 0; i < 3; i++) {
       const method = i === 0 ? "server/discover" : "tools/list";
-      const r = await request(apps[i]).post("/mcp").set({ ...headers, "Mcp-Method": method }).send(rpc(method));
-      expect(r.status).toBe(200); expect(r.headers["mcp-session-id"]).toBeUndefined();
-      const body = parse(r); expect(body.error).toBeUndefined();
-      if (i === 0) expect(body.result.supportedVersions).toContain("2026-07-28");
+      const r = await request(apps[i])
+        .post("/mcp")
+        .set({ ...headers, "Mcp-Method": method })
+        .send(rpc(method));
+      expect(r.status).toBe(200);
+      expect(r.headers["mcp-session-id"]).toBeUndefined();
+      const body = parse(r);
+      expect(body.error).toBeUndefined();
+      if (i === 0)
+        expect(body.result.supportedVersions).toContain("2026-07-28");
       else expect(body.result.tools).toHaveLength(28);
     }
-    expect((await request(apps[0]).post("/mcp").set(headers).send(rpc("tools/list"))).status).toBe(429);
+    expect(
+      (await request(apps[0]).post("/mcp").set(headers).send(rpc("tools/list")))
+        .status,
+    ).toBe(429);
   });
-  it.each(["send_text_message", "send_content", "send_flow"])("MCP %s reaches the same guard and never sends with ambiguous evidence", async name => {
-    const upstream = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "success", data: { id: "7", last_interaction: new Date().toISOString(), ig_id: 99, whatsapp_phone: "+15550000000" } }), { status: 200 }));
-    vi.stubGlobal("fetch", upstream);
-    const args = name === "send_flow" ? { subscriber_id: 7, flow_ns: "flow:test" } : name === "send_content" ? { subscriber_id: 7, data: { version: "v2", content: { messages: [{ type: "text", text: "hello" }] } } } : { subscriber_id: 7, text: "hello" };
-    const { app } = createHttpApp({ env: {} });
-    const r = await request(app).post("/mcp").set({ ...headers, "Mcp-Method": "tools/call", "Mcp-Name": name }).send(rpc("tools/call", { name, arguments: args }));
-    const body = parse(r); expect(body.error).toBeUndefined(); expect(body.result.isError).toBe(true); expect(body.result.content[0].text).toContain("CHANNEL_UNKNOWN");
-    expect(upstream).toHaveBeenCalledOnce(); expect(upstream.mock.calls[0][1].method).toBe("GET");
-  });
+  it.each(["send_text_message", "send_content", "send_flow"])(
+    "MCP %s reaches the same guard and never sends with ambiguous evidence",
+    async (name) => {
+      const upstream = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "success",
+            data: {
+              id: "7",
+              last_interaction: new Date().toISOString(),
+              ig_id: 99,
+              whatsapp_phone: "+15550000000",
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", upstream);
+      const args =
+        name === "send_flow"
+          ? { subscriber_id: 7, flow_ns: "flow:test" }
+          : name === "send_content"
+            ? {
+                subscriber_id: 7,
+                data: {
+                  version: "v2",
+                  content: { messages: [{ type: "text", text: "hello" }] },
+                },
+              }
+            : { subscriber_id: 7, text: "hello" };
+      const { app } = createHttpApp({ env: {} });
+      const r = await request(app)
+        .post("/mcp")
+        .set({ ...headers, "Mcp-Method": "tools/call", "Mcp-Name": name })
+        .send(rpc("tools/call", { name, arguments: args }));
+      const body = parse(r);
+      expect(body.error).toBeUndefined();
+      expect(body.result.isError).toBe(true);
+      expect(body.result.content[0].text).toContain("CHANNEL_UNKNOWN");
+      expect(upstream).toHaveBeenCalledOnce();
+      expect(upstream.mock.calls[0][1].method).toBe("GET");
+    },
+  );
   it("keeps request credentials isolated between two calls", async () => {
-    const upstream = vi.fn().mockImplementation(async (_url, options) => new Response(JSON.stringify({ status: "success", data: { credential: options.headers.Authorization === "Bearer credential-A" ? "A" : "B" } }), { status: 200 }));
+    const upstream = vi.fn().mockImplementation(
+      async (_url, options) =>
+        new Response(
+          JSON.stringify({
+            status: "success",
+            data: {
+              credential:
+                options.headers.Authorization === "Bearer credential-A"
+                  ? "A"
+                  : "B",
+            },
+          }),
+          { status: 200 },
+        ),
+    );
     vi.stubGlobal("fetch", upstream);
     const { app } = createHttpApp({ env: {} });
-    const call = (credential: string) => request(app).post("/mcp").set({ ...headers, "x-manychat-api-key": credential, "Mcp-Method": "tools/call", "Mcp-Name": "get_page_info" }).send(rpc("tools/call", { name: "get_page_info", arguments: {} }));
-    const results = await Promise.all([call("credential-A"), call("credential-B")]);
-    expect(parse(results[0]).result.content[0].text).toContain('"A"'); expect(parse(results[1]).result.content[0].text).toContain('"B"');
+    const call = (credential: string) =>
+      request(app)
+        .post("/mcp")
+        .set({
+          ...headers,
+          "x-manychat-api-key": credential,
+          "Mcp-Method": "tools/call",
+          "Mcp-Name": "get_page_info",
+        })
+        .send(rpc("tools/call", { name: "get_page_info", arguments: {} }));
+    const results = await Promise.all([
+      call("credential-A"),
+      call("credential-B"),
+    ]);
+    expect(parse(results[0]).result.content[0].text).toContain('"A"');
+    expect(parse(results[1]).result.content[0].text).toContain('"B"');
   });
 });
