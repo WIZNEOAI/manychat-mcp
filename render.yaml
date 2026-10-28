@@ -1,0 +1,19 @@
+# Declarative only. Importing this file creates billable resources; review first.
+services:
+  - type: web
+    name: manychat-mcp
+    runtime: docker
+    plan: starter
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MCP_REMOTE_AUTH
+        value: manychat_header
+      - key: REDIS_URL
+        sync: false
+      - key: MCP_ALLOWED_ORIGINS
+        sync: false
+      - key: TRUST_PROXY_CIDRS
+        sync: false
