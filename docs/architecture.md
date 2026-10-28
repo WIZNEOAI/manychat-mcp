@@ -34,7 +34,9 @@ Keep rule logic in the shared guard. Document the rule and dated authoritative s
 
 ## Adding authentication
 
-Keep transport authentication separate from ManyChat's upstream credential handling. HTTP validates `X-ManyChat-API-Key` on each request and never falls back to a process environment key. Do not log credentials or sensitive headers. Preserve OAuth state behavior carefully: in-memory state is process-local and ephemeral; Redis can support shared state only when configured and validated.
+Keep transport authentication separate from ManyChat's upstream credential handling. HTTP validates `X-ManyChat-API-Key` on each request in header mode and never falls back to a process environment key; OAuth mode accepts only issued bearer tokens. Do not log credentials or sensitive headers. In-memory OAuth state is process-local and ephemeral; production requires shared Redis.
+
+The authorization flow requires PKCE S256 and returns a supplied opaque `state` unchanged. The client must bind and validate the callback to its initiating transaction; the server cannot validate a client-only state value. State remains optional for PKCE-capable clients, consistent with [RFC 9700 §2.1](https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1). Clients that do not rely on PKCE for CSRF protection must use a one-time browser-bound state value. Tests cover its HTML escaping and exact callback round trip.
 
 ## Source map
 

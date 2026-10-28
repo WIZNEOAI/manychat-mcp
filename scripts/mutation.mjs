@@ -67,6 +67,12 @@ const mutations = [
     "await engine.execute(name, input)",
     "{ unsafe: true }",
   ],
+  [
+    "OAuth callback drops client state",
+    "src/auth/oauth-routes.ts",
+    'if (state) destination.searchParams.set("state", state);',
+    'if (false) destination.searchParams.set("state", state);',
+  ],
 ];
 const results = [];
 for (const [name, file, from, to] of mutations) {
@@ -82,7 +88,14 @@ for (const [name, file, from, to] of mutations) {
     writeFileSync(file, original.replace(target, to));
     const run = spawnSync(
       "pnpm",
-      ["exec", "vitest", "run", "tests/policy.test.ts", "tests/engine.test.ts"],
+      [
+        "exec",
+        "vitest",
+        "run",
+        "tests/policy.test.ts",
+        "tests/engine.test.ts",
+        "tests/oauth-routes.test.ts",
+      ],
       { encoding: "utf8", timeout: 60000 },
     );
     const output = (run.stdout ?? "") + (run.stderr ?? "");
