@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
 const mutations = [
   [
     "WhatsApp expiry bypass",
@@ -96,9 +97,15 @@ for (const [name, file, from, to] of mutations) {
         "tests/engine.test.ts",
         "tests/oauth-routes.test.ts",
       ],
-      { encoding: "utf8", timeout: 60000 },
+      {
+        encoding: "utf8",
+        timeout: 60000,
+        env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      },
     );
-    const output = (run.stdout ?? "") + (run.stderr ?? "");
+    const output = stripVTControlCharacters(
+      (run.stdout ?? "") + (run.stderr ?? ""),
+    );
     // A compilation/import failure is NOT evidence that a behavioral mutation died.
     const killed =
       run.status !== 0 &&
