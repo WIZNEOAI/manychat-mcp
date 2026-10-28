@@ -1,6 +1,6 @@
 # Client setup
 
-Use the planned npm package with `npx -y mcp-manychat`; no source checkout, branch, or absolute path is required. Package version 0.2.0 is not claimed to be published yet. Once published, use `npx -y mcp-manychat mcp serve --transport stdio`. The package provides `manychat` and `manychat-mcp` binaries.
+Run the npm package with `npx -y mcp-manychat mcp serve --transport stdio`; no source checkout, branch, or absolute path is required. The package provides `manychat` and `manychat-mcp` binaries.
 
 The local `MANYCHAT_API_KEY` environment variable must reach the **client process and its MCP child**. GUI clients do not necessarily inherit your terminal's environment; configure their launch environment or use a local secret-manager launcher. Never write a literal key into these examples, source control or agent chat. These configurations describe client setup; automated tests cover the server wire protocol, not every third-party client's UI/version.
 
