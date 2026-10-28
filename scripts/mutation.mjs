@@ -1,0 +1,246 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
+const mutations = [
+  [
+    "WhatsApp expiry bypass",
+    "src/policy/guard.ts",
+    "if (age >= 24 * 3600000)",
+    "if (false)",
+  ],
+  [
+    "Deprecated tags accepted",
+    "src/policy/guard.ts",
+    'if (tag && ["CONFIRMED_EVENT_UPDATE", "POST_PURCHASE_UPDATE", "ACCOUNT_UPDATE",].includes(tag))',
+    "if (false)",
+  ],
+  [
+    "Promotion tag bypass",
+    "src/policy/guard.ts",
+    "if (tag && intent.promotional !== false)",
+    "if (false)",
+  ],
+  [
+    "Automated HUMAN_AGENT",
+    "src/policy/guard.ts",
+    "!settings.allowHumanAgent || age >= 168 * 3600000",
+    "age >= 168 * 3600000",
+  ],
+  [
+    "Expired HUMAN_AGENT",
+    "src/policy/guard.ts",
+    "!settings.allowHumanAgent || age >= 168 * 3600000",
+    "!settings.allowHumanAgent",
+  ],
+  [
+    "Outside-wedge channels blocked",
+    "src/policy/guard.ts",
+    "if (OUTSIDE_META_WEDGE.has(evidence.channel))",
+    "if (false)",
+  ],
+  [
+    "Verified ad window disabled",
+    "src/policy/guard.ts",
+    "if (ad?.verified === true && matchesChannel",
+    "if (false && matchesChannel",
+  ],
+  [
+    "Invalid future time accepted",
+    "src/policy/guard.ts",
+    "!Number.isFinite(last) || last > now",
+    "!Number.isFinite(last)",
+  ],
+  [
+    "Blanket denial (positive controls)",
+    "src/policy/guard.ts",
+    "const tag = intent.message_tag;",
+    'return result(false, "MUTANT", "deny all"); const tag = intent.message_tag;',
+  ],
+  [
+    "Engine omits enforcement",
+    "src/core/engine.ts",
+    "if (!verdict.allowed) throw new PolicyError(verdict);",
+    "if (false) throw new PolicyError(verdict);",
+  ],
+  [
+    "CLI skips execution boundary",
+    "src/cli/app.ts",
+    "await engine.execute(name, input)",
+    "{ unsafe: true }",
+  ],
+  [
+    "OAuth callback drops client state",
+    "src/auth/oauth-routes.ts",
+    'if (state) destination.searchParams.set("state", state);',
+    'if (false) destination.searchParams.set("state", state);',
+  ],
+  [
+    "Automation guard bypass: add_tag_to_subscriber",
+    "src/core/engine.ts",
+    '"add_tag_to_subscriber",',
+    '"disabled:add_tag_to_subscriber",',
+  ],
+  [
+    "Automation guard bypass: add_tag_to_subscriber_by_name",
+    "src/core/engine.ts",
+    '"add_tag_to_subscriber_by_name",',
+    '"disabled:add_tag_to_subscriber_by_name",',
+  ],
+  [
+    "Automation guard bypass: set_custom_field",
+    "src/core/engine.ts",
+    '"set_custom_field",',
+    '"disabled:set_custom_field",',
+  ],
+  [
+    "Automation guard bypass: set_custom_field_by_name",
+    "src/core/engine.ts",
+    '"set_custom_field_by_name",',
+    '"disabled:set_custom_field_by_name",',
+  ],
+  [
+    "Automation guard bypass: set_custom_fields_bulk",
+    "src/core/engine.ts",
+    '"set_custom_fields_bulk",',
+    '"disabled:set_custom_fields_bulk",',
+  ],
+  [
+    "Automation guard bypass: update_subscriber",
+    "src/core/engine.ts",
+    '"update_subscriber",',
+    '"disabled:update_subscriber",',
+  ],
+  [
+    "Automation guard bypass: remove_tag_from_subscriber",
+    "src/core/engine.ts",
+    '"remove_tag_from_subscriber",',
+    '"disabled:remove_tag_from_subscriber",',
+  ],
+  [
+    "Automation guard bypass: remove_tag_from_subscriber_by_name",
+    "src/core/engine.ts",
+    '"remove_tag_from_subscriber_by_name",',
+    '"disabled:remove_tag_from_subscriber_by_name",',
+  ],
+  [
+    "Automation guard bypass: create_subscriber",
+    "src/core/engine.ts",
+    '"create_subscriber",',
+    '"disabled:create_subscriber",',
+  ],
+  [
+    "Automation guard bypass: set_bot_field",
+    "src/core/engine.ts",
+    '"set_bot_field",',
+    '"disabled:set_bot_field",',
+  ],
+  [
+    "HUMAN_AGENT enabled without server opt-in",
+    "src/core/engine.ts",
+    'process.env.MANYCHAT_ALLOW_HUMAN_AGENT === "1"',
+    "true",
+  ],
+  [
+    "Credential encryption omitted",
+    "src/auth/oauth-store.ts",
+    "return encryptOAuthRecord(value, this.encryptionKey, kind, oauthKeyId(id));",
+    "return JSON.stringify(value);",
+  ],
+  [
+    "Raw credential IDs used in Redis keys",
+    "src/auth/oauth-crypto.ts",
+    'return createHash("sha256").update(id).digest("hex");',
+    "return id;",
+  ],
+  [
+    "Client capacity guard omitted",
+    "src/auth/client-registry.ts",
+    "if (this.clients.size >= this.options.maxClients)",
+    "if (false)",
+  ],
+  [
+    "Expired client accepted",
+    "src/auth/client-registry.ts",
+    "if (record.expiresAt <= Date.now()) {",
+    "if (false) {",
+  ],
+  [
+    "Registration route skips its own quota",
+    "src/auth/oauth-routes.ts",
+    'await takeRegistrationQuota(req.ip ?? req.socket.remoteAddress ?? "unknown",)',
+    "true",
+  ],
+  [
+    "Proxy hop configuration ignored",
+    "src/mcp/http.ts",
+    "proxyHops ? Number(proxyHops) : false",
+    "proxyHops ? false : false",
+  ],
+  [
+    "HTTP framing protection weakened",
+    "src/mcp/http.ts",
+    'res.setHeader("X-Frame-Options", "DENY");',
+    'res.setHeader("X-Frame-Options", "SAMEORIGIN");',
+  ],
+  [
+    "Health check incorrectly shares application quota",
+    "src/mcp/http.ts",
+    'app.get("/health", (_req, res) => { res.json({ status: "ok" }); });',
+    'app.get("/health", async (req, res) => { if (!(await rate.take(`ip:${credentialHash(req.ip ?? req.socket.remoteAddress ?? "unknown")}`, options.ipLimit ?? 120))) { res.sendStatus(429); return; } res.json({ status: "ok" }); });',
+  ],
+  [
+    "Consent hides unverified-client warning",
+    "src/auth/oauth-routes.ts",
+    "(unverified)",
+    "(verified)",
+  ],
+];
+const results = [];
+for (const [name, file, from, to] of mutations) {
+  const original = readFileSync(file, "utf8");
+  const target = new RegExp(
+    Array.from(from.replace(/\s/g, ""))
+      .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("\\s*"),
+  );
+  if (!target.test(original))
+    throw new Error(`Mutation target missing: ${name}`);
+  try {
+    writeFileSync(file, original.replace(target, to));
+    const run = spawnSync(
+      "pnpm",
+      [
+        "exec",
+        "vitest",
+        "run",
+        "tests/policy.test.ts",
+        "tests/engine.test.ts",
+        "tests/oauth-routes.test.ts",
+        "tests/oauth-storage.test.ts",
+        "tests/oauth-registration.test.ts",
+        "tests/http.test.ts",
+      ],
+      {
+        encoding: "utf8",
+        timeout: 60000,
+        env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      },
+    );
+    const output = stripVTControlCharacters(
+      (run.stdout ?? "") + (run.stderr ?? ""),
+    );
+    // A compilation/import failure is NOT evidence that a behavioral mutation died.
+    const killed =
+      run.status !== 0 &&
+      /Tests\s+\d+ failed/.test(output) &&
+      !/Failed Suites/.test(output);
+    results.push({ name, killed });
+    console.log(`${killed ? "KILLED" : "SURVIVED/INVALID"} ${name}`);
+    if (!killed) console.error(output);
+  } finally {
+    writeFileSync(file, original);
+  }
+}
+const killed = results.filter((r) => r.killed).length;
+console.log(`Behavioral mutations killed: ${killed}/${results.length}`);
+if (killed !== results.length) process.exitCode = 1;

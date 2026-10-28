@@ -1,0 +1,52 @@
+name: Manual npm release (opt-in only)
+on:
+  workflow_dispatch:
+    inputs:
+      enabled:
+        description: 'Explicitly enable publication (maintainer only)'
+        type: boolean
+        default: false
+      tag:
+        description: 'Existing version tag, created and released by a maintainer'
+        type: string
+        default: v0.2.0
+      dist_tag:
+        description: 'Use next for prereleases'
+        type: choice
+        options: [next, latest]
+        default: next
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: inputs.enabled == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
+      - name: Check version and prerelease dist-tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          DIST_TAG: ${{ inputs.dist_tag }}
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const v=JSON.parse(fs.readFileSync("package.json")).version; if (process.env.RELEASE_TAG !== `v${v}` || (v.includes("-") && process.env.DIST_TAG !== "next")) process.exit(1)'
+      # npm >=11.5.1 is required for GitHub OIDC trusted publishing.
+      - run: npm install --global npm@11.6.2
+      # Requires npm trusted publishing configured by the maintainer for this workflow.
+      - name: Publish with provenance using npm trusted publishing
+        env:
+          DIST_TAG: ${{ inputs.dist_tag }}
+        run: npm publish --provenance --access public --tag "$DIST_TAG"
