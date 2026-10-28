@@ -10,4 +10,3 @@
 - [ ] Every send path uses the shared policy guard
 
 ## Follow-up or known limitations
-
